@@ -17,11 +17,9 @@ import scala.collection.JavaConversions;
  * @ClassName: KafkaProducerUtil
  * @Description: kafka-client-producer version:2.10_0.8.2.1
  * @Author dante.zg
- * @Date 2015年11月18日 下午3:37:58
+ * @Date 2015-11-18 15:37:58
  */
 public class ProducerUtil {
-
-	private Properties p;
 
 	private ProducerConfig producerConfig;
 
@@ -29,28 +27,41 @@ public class ProducerUtil {
 
 	private List<KeyedMessage<String, String>> messageList;
 
+	private static ProducerUtil producerUtil = null;
+
 	/**
-	 * 构造方法，用于初始化client
-	 * @param zkCluster: ZK cluster 【hostname:port】
-	 * @param kafkaCluster: Kafka cluster 【hostname:port】
-	 * @param isAsync: sync or async
+	 * singleton
+	 * @param zkCluster - ZK cluster hostname:port
+	 * @param kafkaCluster - Kafka cluster hostname:port
+	 * @param isAsync - sync or async
 	 * @throws Exception
 	 */
-	public ProducerUtil(String zkCluster, String kafkaCluster, boolean isAsync) throws Exception {
+	private ProducerUtil(String zkCluster, String kafkaCluster, boolean isAsync) throws Exception {
 		if (StringUtils.isEmpty(zkCluster) || StringUtils.isEmpty(kafkaCluster)) {
 			throw new Exception("Null Input, please check the params!");
 		}
-		p = new Properties();
-		p.put("zk.connect", zkCluster);
-		p.put("metadata.broker.list", kafkaCluster);
-		p.put("zk.connectiontimeout", "6000");
-		if (isAsync) {// 异步
-			p.put("producer.type", "async");
+		Properties properties = new Properties();
+		properties.put("zk.connect", zkCluster);
+		properties.put("metadata.broker.list", kafkaCluster);
+		properties.put("zk.connectiontimeout", "6000");
+		if (isAsync) {
+			properties.put("producer.type", "async");
 		}
-//		p.put("acks", "0");ack机制保证每次成功的put
-		p.put("serializer.class", "kafka.serializer.StringEncoder");
-		producerConfig = new ProducerConfig(p);
+//		properties.put("acks", "0");ack
+		properties.put("serializer.class", "kafka.serializer.StringEncoder");
+		producerConfig = new ProducerConfig(properties);
 		producer = new Producer<>(producerConfig);
+	}
+
+	public static ProducerUtil getProducerUtil(final String zkCluster, final String kafkaCluster, final boolean isAsync) {
+	    if (null == producerUtil) {
+	        try {
+                producerUtil= new ProducerUtil(zkCluster, kafkaCluster, isAsync);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+	    }
+	    return producerUtil;
 	}
 
 	/**

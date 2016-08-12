@@ -1,6 +1,5 @@
 package com.dante.zg.kafka;
 
-
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -23,106 +22,126 @@ import kafka.message.MessageAndMetadata;
  * @ClassName: KafkaProducerUtil
  * @Description: kafka-client-consumer version:2.10_0.8.2.1
  * @Author dante.zg
- * @Date 2015年11月18日 下午3:37:58
+ * @Date 2015-11-18 15:37:58
  */
 public class ConsumerUtil {
 
-	private Properties p;
+    private String topic = null;
 
-	private String topic;
+    private Integer partitions = 1;
 
-	private Integer partitions = 1;
+    private Integer blockingQueueSize = 1000000;
 
-	private ConsumerConfig consumerConfig;
+    private ConsumerConnector consumerConnector = null;
 
-	private ConsumerConnector consumerConnector;
+    private volatile BlockingQueue<String> blockingQueue;
 
-	private Integer blockingQueueSize = 1000000;
+    private static ConsumerUtil consumerUtil = null;
 
-	private volatile BlockingQueue<String> bq;
+    /**
+     * singleton
+     * @param zkCluster - hostname:port
+     * @param groupId - group id of consumer
+     * @param topic - topic
+     * @param partitions - kafka partitions
+     * @param size - the queue size which put receved message
+     */
+    private ConsumerUtil(final String zkCluster, final String groupId, final String topic, final Integer partitions, final Integer size) {
+        if (StringUtils.isEmpty(zkCluster) || StringUtils.isEmpty(zkCluster) || StringUtils.isEmpty(topic)) {
+            throw new IllegalArgumentException("Input parameters error: nullOrEmpty!");
+        }
+        if (partitions < 1 || size < 1) {
+            throw new IllegalArgumentException("Input parameters error: numberNotCorrectly!");
+        }
 
-	/**
-	 * 构造方法，用于初始化client和启动监听线程
-	 * @param zkCluster: ZK cluster 【hostname:port】
-	 * @param groupId: group id of consumer
-	 * @param topic: topic
-	 * @param partitions: kafka partitions
-	 * @param size: local blocking queue's init size
-	 * @throws Exception
-	 */
-	public ConsumerUtil(String zkCluster, String groupId, String topic,
-			Integer partitions, Integer size) throws Exception {
-		if (StringUtils.isEmpty(zkCluster) || StringUtils.isEmpty(zkCluster) || StringUtils.isEmpty(topic)) {
-			throw new Exception("Null Input, please check the params!");
-		}
-		this.topic = topic;
-		if (partitions>1) {// 至少一个分区个数
-			this.partitions = partitions;
-		}
-		if (size > 1) {// 至少1的size
-			this.blockingQueueSize = size;
-		}
-		p = new Properties();
-		p.put("zookeeper.connect", zkCluster);
-		p.put("zookeeper.connectiontimeout.ms", "1000000");
-		p.put("group.id", groupId);
-		consumerConfig = new ConsumerConfig(p);
-		consumerConnector = Consumer.createJavaConsumerConnector(consumerConfig);
-		bq = new ArrayBlockingQueue<>(blockingQueueSize);
-		// 启动监听线程
-		startMonitorThreads();
-	}
+        this.topic = topic;
+        this.partitions = partitions;
+        this.blockingQueueSize = size < this.blockingQueueSize ? this.blockingQueueSize : size;
 
-	/**
-	 * 启动kafka消费监听线超方法
-	 */
-	private void startMonitorThreads() {
-		System.out.println("Monitor thread: " + Thread.currentThread().getName() + " started ...");
-		// 创建topic和partitions映射map
-		Map<String, Integer> topicCountmap = new HashMap<>();
-		topicCountmap.put(topic, partitions);
-		// 根据以上map创建消息流映射map
-		Map<String, List<KafkaStream<byte[], byte[]>>> messageStreamsMap = consumerConnector.createMessageStreams(topicCountmap);
-		// 获取所有的分区的消息流列表, list size = partitions number
-		List<KafkaStream<byte[], byte[]>> kafkaSteamList = messageStreamsMap.get(topic);
-		// 根据分区大小初始化监听线程池
-		ExecutorService executor = Executors.newFixedThreadPool(partitions);
-		// 循环启动监听线程
-		for (final KafkaStream<byte[], byte[]> kafkaStream : kafkaSteamList) {
-			executor.submit(new Runnable() {
-				@Override
-				public void run() {
-					for (MessageAndMetadata<byte[], byte[]> messageAndMetadata : kafkaStream) {
-						String message = new String(messageAndMetadata.message());
-						try {
-							bq.put(message);// 阻塞放入
-						} catch (InterruptedException e) {
-							e.printStackTrace();
-						}
-					}
-				}
-			});
-		}
-	}
+        Properties properties = new Properties();
+        properties.put("zookeeper.connect", zkCluster);
+        properties.put("zookeeper.connectiontimeout.ms", "1000000");
+        properties.put("group.id", groupId);
 
-	/**
-	 * 从本地blockingQueue中获取消息
-	 * @return
-	 */
-	public String getMessageFromBlockingQueue() {
-		String message = null;
-		try {
-			if (bq.isEmpty()) {// 避免使用size==0判断，影响性能
-				System.out.println("the current blockingQueue size is 0, let's wait for while ...");
-				Thread.sleep(5000);// 默认等待5秒，迭代进入
-				getMessageFromBlockingQueue();
-			} else {
-//				message = bq.take();// 阻塞等待
-				message = bq.poll(1, TimeUnit.SECONDS);// 默认等待1秒，超时不候
-			}
-		} catch (InterruptedException e) {
-			e.printStackTrace();
-		}
-		return message;
-	}
+        ConsumerConfig consumerConfig = new ConsumerConfig(properties);
+        this.consumerConnector = Consumer.createJavaConsumerConnector(consumerConfig);
+        this.blockingQueue = new ArrayBlockingQueue<>(blockingQueueSize);
+    }
+
+    /**
+     * start the consumer thread
+     */
+    public void startConsumer() {
+        Map<String, Integer> topicCountmap = new HashMap<>();
+        topicCountmap.put(topic, partitions);
+        Map<String, List<KafkaStream<byte[], byte[]>>> messageStreamsMap = consumerConnector.createMessageStreams(topicCountmap);
+        List<KafkaStream<byte[], byte[]>> kafkaSteamList = messageStreamsMap.get(topic);
+        ExecutorService executor = Executors.newFixedThreadPool(partitions);
+        for (final KafkaStream<byte[], byte[]> kafkaStream : kafkaSteamList) {
+            executor.submit(new Runnable() {
+                @Override
+                public void run() {
+                    for (MessageAndMetadata<byte[], byte[]> messageAndMetadata : kafkaStream) {
+                        String message = new String(messageAndMetadata.message());
+                        try {
+                            blockingQueue.put(message);// blocking put
+                        } catch (InterruptedException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    /**
+     * get message from local blockingQueue
+     *
+     * @return
+     */
+    public String getMessageFromBlockingQueue() {
+        String message = null;
+        try {
+            if (blockingQueue.isEmpty()) {
+                TimeUnit.SECONDS.sleep(5000);;// default sleep 5 seconds
+                getMessageFromBlockingQueue();
+            } else {
+                // message = blockingQueue.take();// blocking and wait
+                message = blockingQueue.poll(1, TimeUnit.SECONDS);// default wait 1 second timeout
+            }
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        return message;
+    }
+
+    /**
+     * get default partitions and queue size
+     * @param zkCluser
+     * @param groupId
+     * @param topic
+     * @return
+     */
+    public static ConsumerUtil getConsumer(final String zkCluser, final String groupId, final String topic) {
+        if (null == consumerUtil) {
+            consumerUtil = new ConsumerUtil(zkCluser, groupId, topic, 1, 0);
+        }
+        return consumerUtil;
+    }
+
+    /**
+     * get customed partitions and queue size
+     * @param zkCluser
+     * @param groupId
+     * @param topic
+     * @param partitions
+     * @param size
+     * @return
+     */
+    public static ConsumerUtil getConsumer(final String zkCluser, final String groupId, final String topic, final Integer partitions, final Integer size) {
+        if (null == consumerUtil) {
+            consumerUtil = new ConsumerUtil(zkCluser, groupId, topic, partitions, size);
+        }
+        return consumerUtil;
+    }
 }
