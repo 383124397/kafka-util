@@ -36,7 +36,7 @@ public class ProducerUtil {
 	 * @param isAsync - sync or async
 	 * @throws Exception
 	 */
-	private ProducerUtil(String zkCluster, String kafkaCluster, boolean isAsync) throws Exception {
+	private ProducerUtil(String zkCluster, String kafkaCluster, boolean isAsync, boolean ack) throws Exception {
 		if (StringUtils.isEmpty(zkCluster) || StringUtils.isEmpty(kafkaCluster)) {
 			throw new Exception("Null Input, please check the params!");
 		}
@@ -44,19 +44,42 @@ public class ProducerUtil {
 		properties.put("zk.connect", zkCluster);
 		properties.put("metadata.broker.list", kafkaCluster);
 		properties.put("zk.connectiontimeout", "6000");
-		if (isAsync) {
+		if (isAsync)
 			properties.put("producer.type", "async");
-		}
-//		properties.put("acks", "0");ack
+		if (ack)
+		    properties.put("acks", "0");
 		properties.put("serializer.class", "kafka.serializer.StringEncoder");
 		producerConfig = new ProducerConfig(properties);
 		producer = new Producer<>(producerConfig);
 	}
 
-	public static ProducerUtil getProducerUtil(final String zkCluster, final String kafkaCluster, final boolean isAsync) {
+	/**
+     * send message method
+     * @param topic: topic
+     * @param message: message
+     * @throws Exception
+     */
+    public void sendMessage(final String topic, String message) throws Exception {
+        if (StringUtils.isEmpty(topic) || StringUtils.isEmpty(message)) {
+            throw new Exception("Null Input, please check the params!");
+        }
+        KeyedMessage<String, String> keyedMessage = new KeyedMessage<>(topic, UUID.randomUUID().toString(), message);
+        messageList = new ArrayList<>();
+        messageList.add(keyedMessage);
+        producer.send(JavaConversions.asScalaBuffer(messageList));
+    }
+
+    /**
+     * get a producer with this three parameters
+     * @param zkCluster: zk cluster
+     * @param kafkaCluster: kafka cluster
+     * @param isAsync: is aysnc send model
+     * @return ProducerUtil
+     */
+	public synchronized static ProducerUtil getInstance(final String zkCluster, final String kafkaCluster, final boolean isAsync) {
 	    if (null == producerUtil) {
 	        try {
-                producerUtil= new ProducerUtil(zkCluster, kafkaCluster, isAsync);
+                producerUtil= new ProducerUtil(zkCluster, kafkaCluster, isAsync, false);
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -65,18 +88,21 @@ public class ProducerUtil {
 	}
 
 	/**
-	 * 发送消息方法
-	 * @param topic: topic
-	 * @param message: message
-	 * @throws Exception
+	 * get a producer with this four parameters
+	 * @param zkCluster: zk cluster
+	 * @param kafkaCluster: kafka cluster
+	 * @param isAsync: is aysnc send model
+	 * @param ack: reference ack mechanism
+	 * @return ProducerUtil
 	 */
-	public void sendMessage(final String topic, String message) throws Exception {
-		if (StringUtils.isEmpty(topic) || StringUtils.isEmpty(message)) {
-			throw new Exception("Null Input, please check the params!");
-		}
-		KeyedMessage<String, String> keyedMessage = new KeyedMessage<>(topic, UUID.randomUUID().toString(), message);
-		messageList = new ArrayList<>();
-		messageList.add(keyedMessage);
-		producer.send(JavaConversions.asScalaBuffer(messageList));
+	public synchronized static ProducerUtil getInstance(final String zkCluster, final String kafkaCluster, final boolean isAsync, final boolean ack) {
+	    if (null == producerUtil) {
+            try {
+                producerUtil= new ProducerUtil(zkCluster, kafkaCluster, isAsync, ack);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+        return producerUtil;
 	}
 }

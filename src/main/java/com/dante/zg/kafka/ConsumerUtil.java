@@ -97,7 +97,7 @@ public class ConsumerUtil {
     /**
      * get message from local blockingQueue
      *
-     * @return
+     * @return String message
      */
     public String getMessageFromBlockingQueue() {
         String message = null;
@@ -116,13 +116,13 @@ public class ConsumerUtil {
     }
 
     /**
-     * get default partitions and queue size
+     * get a consumer with default partitions and queue size
      * @param zkCluser
      * @param groupId
      * @param topic
-     * @return
+     * @return ConsumerUtil
      */
-    public static ConsumerUtil getConsumer(final String zkCluser, final String groupId, final String topic) {
+    public synchronized static ConsumerUtil getInstance(final String zkCluser, final String groupId, final String topic) {
         if (null == consumerUtil) {
             consumerUtil = new ConsumerUtil(zkCluser, groupId, topic, 1, 0);
         }
@@ -130,15 +130,15 @@ public class ConsumerUtil {
     }
 
     /**
-     * get customed partitions and queue size
+     * get a consumer with customed partitions and queue size
      * @param zkCluser
      * @param groupId
      * @param topic
      * @param partitions
      * @param size
-     * @return
+     * @return ConsumerUtil
      */
-    public static ConsumerUtil getConsumer(final String zkCluser, final String groupId, final String topic, final Integer partitions, final Integer size) {
+    public synchronized static ConsumerUtil getInstance(final String zkCluser, final String groupId, final String topic, final Integer partitions, final Integer size) {
         if (null == consumerUtil) {
             consumerUtil = new ConsumerUtil(zkCluser, groupId, topic, partitions, size);
         }
